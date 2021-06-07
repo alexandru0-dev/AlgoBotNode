@@ -1,119 +1,111 @@
-const { Client, MessageEmbed } = require('discord.js');
-const config = require("./config.json");
-const prefix = config.prefix;
-const commands = require('./help');
+const {
+	Client,
+	Collection,
+	MessageEmbed,
+	MessageAttachment
+} = require('discord.js');
 
-let bot = new Client();
+const fs = require('fs');
 
-bot.once('ready', () => 
-{
-    	console.log(`Logged in as ${bot.user.tag}.`);
-		var num_users = bot.guilds.cache.reduce((a, g) => a + g.memberCount, 0);
+const bot = new Client();
+bot.commands = new Collection();
 
-	    console.log(`Bot has started, with ${num_users} users, in ${bot.guilds.cache.size} guilds.`);
+const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 
-		// set status di quanti server attivi con utenti
-    	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {type: 'LISTENING'});
+for (const file of commandFiles) {
+	const command = require(`./commands/${file}`);
+	bot.commands.set(command.name, command);
+}
+
+require('dotenv').config(".env");
+const { prefix } = require("./config.json");
+
+
+bot.once('ready', () => {
+
+	console.log(`Logged in as ${bot.user.tag}.`);
+	var num_users = bot.guilds.cache.reduce((a, g) => a + g.memberCount, 0);
+
+	console.log(`Bot has started, with ${num_users} users, in ${bot.guilds.cache.size} guilds.`);
+
+	// set status di quanti server attivi con utenti
+	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {
+		type: 'LISTENING'
+	});
 });
 
-bot.on('message', async message => 
-{
-  // Check for command
+bot.on('message', async message => {
+
+	// Check mention
+
+	if (message.mentions.users.has(bot.user.id) && !message.author.bot) {
+		message.reply(`my prefix here is \"${prefix}\" `)
+		return;
+	};
+
+	// Check for command
+
 	if (!message.content.startsWith(prefix) || message.author.bot) return;
+
+	var args = message.content.slice(prefix.length).trim().split(/ +/);
+	const commandName = args.shift().toLowerCase();
 	
-    let args = message.content.slice(prefix.length).split(' ');
-    let command = args.shift().toLowerCase();
-
-	switch (command) 
-	{
-
-		case 'ping':
-			const msg = await message.channel.send('Ping?');
-			msg.edit(`Pong! Latency is ${m.createdTimestamp -message.createdTimestamp}ms. API Latency is ${Math.round(bot.ws.ping)}ms`);
-			break
-
-		case 'say':
-		case 'repeat':
-			if (args.length > 0)
-				message.channel.send(args.join(' '));
-			else
-				message.reply('You did not send a message to repeat, cancelling command.');
-			break
-		
-		case 'random':
-			if (args.length > 1)
-				message.reply('Too many arguments, cancelling command.');
-			else if (args.length > 0)
-			{
-				if(parseInt(args[0]) > 1)
-				{
-					console.log(1 + Math.floor(Math.random() * parseInt(args[0])));
-					message.channel.send(`\`\`\`${1 + Math.floor(Math.random() * parseInt(args[0]))}\`\`\``);
-				}
-				else
-					message.reply('You did set an incorrect value for the interval, cancelling command.');			
-			}
-			else
-				message.reply('You did not set the value of the interval, cancelling command.');
-			break
-
-		case 'bella':
-			message.channel.send(`bella <@${message.author.id}>`);
-			break
-
-		case 'help':
-			let embed =  new MessageEmbed()
-				.setTitle('AlgoBot')
-				.setColor('#7fe5f0')
-				.setFooter(`Requested by: ${message.member ? message.member.displayName : message.author.username}`, message.author.displayAvatarURL())
-			
-			if (!args[0])
-				embed
-				.setDescription(Object.keys(commands).map(command => `\`${command.padEnd(Object.keys(commands).reduce((a, b) => b.length > a.length ? b : a, '').length)}\` :: ${commands[command].description}`).join('\n'));
-			else 
-			{
-				if ( Object.keys(commands).includes(args[0].toLowerCase()) || Object.keys(commands).map(c => commands[c].aliases || []).flat().includes(args[0].toLowerCase()))
-				{
-					let command = Object.keys(commands).includes(args[0].toLowerCase())? args[0].toLowerCase() : Object.keys(commands).find(c => commands[c].aliases && commands[c].aliases.includes(args[0].toLowerCase()));
-					embed
-						.setTitle(`COMMAND - ${command}`)
-
-					if (commands[command].aliases)
-						embed.addField('Command aliases', `\`${commands[command].aliases.join('`, `')}\``);
-					embed
-						.addField('DESCRIPTION', commands[command].description)
-						.addField('FORMAT', `\`\`\`${prefix}${commands[command].format}\`\`\``);
-				}
-				else 
-				{
-					embed
-						.setColor('RED')
-						.setDescription('This command does not exist. Please use the help command without specifying any commands to list them all.');
-				}
-			}
-			message.channel.send(embed);
-		break;
-
+	//prevent spamming "Command not found" if only the prefix is sent
+	if (commandName.length == 0) {
+		return;
 	}
 	
+	if (!bot.commands.has(commandName) && !bot.commands.find(c => c.aliases && c.aliases.includes(commandName))) {
+		message.reply("Command not found");
+		return;
+	}
+	// console.log(bot.commands);
+	const command = bot.commands.get(commandName) || bot.commands.find(c => c.aliases && c.aliases.includes(commandName));
+	
+	// If a get a help command i need to get all the names,description of all the modules
+
+	if (commandName == 'help') {
+		if (args[0]) {
+			const command_help = args.shift().toLowerCase();
+			args[0] = bot.commands.get(command_help) || bot.commands.find(c => c.aliases && c.aliases.includes(command_help));
+
+			if (!args[0])
+				return message.reply("Invalid argument");
+
+			// console.log(args);
+			command.execute(message, args);
+		} else {
+			args = [];
+			args = [...bot.commands].map(([name, value]) => ({ value }));
+			command.execute(message, args);
+		}
+		return;
+	}
+	command.execute(message, args);
+
 });
 
 
-bot.on("guildCreate", guild => 
-{
+bot.on("guildCreate", guild => {
 	// This event triggers when the bot joins a guild.
 	console.log(`New guild joined: ${guild.name} (id: ${guild.id}). This guild has ${guild.memberCount} members!`);
-	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {type: 'LISTENING'});
+	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {
+		type: 'LISTENING'
+	});
 });
-  
-bot.on("guildDelete", guild => 
-{
+
+bot.on("guildDelete", guild => {
 	// this event triggers when the bot is removed from a guild.
 	console.log(`I have been removed from: ${guild.name} (id: ${guild.id})`);
-	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {type: 'LISTENING'});
- });
-  
+	bot.user.setActivity(`${prefix}help | Serving ${bot.guilds.cache.size} servers`, {
+		type: 'LISTENING'
+	});
+});
 
+
+bot.on("error", (e) => console.error(e));
+bot.on("warn", (e) => console.warn(e));
+bot.on("debug", (e) => console.info(e));
 
 const express = require('express');
 
